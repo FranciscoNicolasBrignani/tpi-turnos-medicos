@@ -787,11 +787,11 @@ PORT=3002
 
 # Autores
 
+**Grupo 24**
+
 - Nombre Apellido 1
 - Nombre Apellido 2
 - Nombre Apellido 3
-
-**Grupo 24**
 
 
 Trabajo realizado para la materia **Base de Datos II**.
