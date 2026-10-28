@@ -15,7 +15,8 @@ Desarrollar un sistema que permita administrar:
 - Bajas lógicas sin eliminar físicamente los documentos.
 - Persistencia de datos en MongoDB Atlas.
 - Respaldo de la base de datos mediante `mongodump`.
-- Ejecución de backups mediante scripts para Linux/macOS y Windows.
+- Compresión de los respaldos mediante Zstandard.
+- Ejecución de backups tanto en Linux/macOS como en Windows.
 
 ## Tecnologías utilizadas
 
@@ -31,7 +32,8 @@ Desarrollar un sistema que permita administrar:
 - MongoDB Command Line Database Tools
 - `mongodump`
 - `mongorestore`
-- Zstandard (`zstd`) para el script de Linux
+- `tar`
+- Zstandard (`zstd`)
 
 ---
 
@@ -467,13 +469,13 @@ mongodump --version
 mongorestore --version
 ```
 
-Si el comando no es reconocido, debe verificarse que el directorio que contiene MongoDB Database Tools se encuentre incluido en la variable de entorno `PATH`.
+Si los comandos no son reconocidos, debe verificarse que el directorio que contiene MongoDB Database Tools se encuentre incluido en la variable de entorno `PATH`.
 
 ## Zstandard
 
-El script `backup.sh` para Linux comprime los respaldos utilizando Zstandard.
+Los scripts de backup comprimen los respaldos utilizando **Zstandard**.
 
-En Debian puede instalarse mediante:
+### Debian y distribuciones derivadas
 
 ```bash
 sudo apt install zstd
@@ -484,6 +486,38 @@ Verificación:
 ```bash
 zstd --version
 ```
+
+### Windows
+
+Debe instalarse una versión de Zstandard compatible con Windows.
+
+El ejecutable `zstd` debe estar disponible mediante la variable de entorno `PATH`.
+
+Puede comprobarse desde CMD:
+
+```bat
+zstd --version
+```
+
+## tar
+
+Ambos scripts utilizan `tar` para generar el archivo que posteriormente se comprime con Zstandard.
+
+En Linux suele estar disponible por defecto.
+
+Puede comprobarse mediante:
+
+```bash
+tar --version
+```
+
+En Windows:
+
+```bat
+tar --version
+```
+
+Si no estuviera disponible, deberá instalarse una implementación compatible o agregarse al `PATH`.
 
 ---
 
@@ -594,149 +628,236 @@ scripts/
 └── backup.bat
 ```
 
-## Backup en Linux/macOS
+Ambos realizan el mismo flujo general:
 
-El script:
+1. Verifican que exista la variable `MONGODB_URI`.
+2. Verifican las herramientas necesarias.
+3. Obtienen fecha y hora.
+4. Crean un directorio temporal de trabajo.
+5. Ejecutan `mongodump` contra MongoDB Atlas.
+6. Generan los archivos BSON y sus metadatos.
+7. Crean un archivo TAR.
+8. Comprimen el respaldo mediante Zstandard.
+9. Generan un archivo `.tar.zst`.
+10. Eliminan los archivos temporales.
 
-```text
-scripts/backup.sh
-```
-
-realiza un respaldo mediante `mongodump` y posteriormente comprime el resultado utilizando `tar` y Zstandard.
-
-Los backups se almacenan en:
+Los respaldos se almacenan dentro de:
 
 ```text
 resguardos_tpi/
 ```
-
-y utilizan fecha y hora para evitar sobrescribir respaldos realizados durante el mismo día.
 
 Ejemplo:
 
 ```text
 resguardos_tpi/
 ├── backup_2026-10-27_12-45-10.tar.zst
-└── backup_2026-10-27_18-30-05.tar.zst
+├── backup_2026-10-27_15-30-25.tar.zst
+└── backup_2026-10-27_20-12-41.tar.zst
 ```
 
-Antes de ejecutarlo debe cargarse la variable:
+La utilización de fecha y hora permite realizar múltiples respaldos durante el mismo día sin sobrescribir backups anteriores.
+
+---
+
+# Backup en Linux/macOS
+
+El script se encuentra en:
+
+```text
+scripts/backup.sh
+```
+
+## Requisitos
+
+Deben estar disponibles:
+
+```text
+mongodump
+tar
+zstd
+bash
+```
+
+Verificación:
+
+```bash
+mongodump --version
+tar --version
+zstd --version
+```
+
+## Variable de conexión
+
+El script utiliza:
+
+```text
+MONGODB_URI
+```
+
+Puede cargarse desde `.env` mediante:
 
 ```bash
 export $(grep -v '^#' .env | xargs)
 ```
 
-Puede ser necesario otorgar permisos:
+## Permisos
+
+Puede ser necesario otorgar permisos de ejecución:
 
 ```bash
 chmod +x scripts/backup.sh
 ```
 
-Ejecución:
+## Ejecución
+
+Desde la raíz del proyecto:
 
 ```bash
 ./scripts/backup.sh
 ```
 
-El script realiza:
+El archivo generado tendrá un formato similar a:
 
-1. Obtención de fecha y hora.
-2. Creación de un directorio temporal.
-3. Ejecución de `mongodump`.
-4. Generación de archivos BSON y metadatos.
-5. Compresión mediante `tar` y `zstd`.
-6. Generación de archivo `.tar.zst`.
-7. Eliminación del directorio temporal.
+```text
+resguardos_tpi/backup_2026-10-27_18-30-45.tar.zst
+```
 
 ---
 
 # Backup en Windows
 
-El archivo:
+El script se encuentra en:
 
 ```text
 scripts\backup.bat
 ```
 
-realiza un respaldo utilizando `mongodump`.
+## Requisitos
 
-El script obtiene:
-
-- la fecha actual;
-- la hora actual;
-
-y utiliza ambos valores para generar un nombre diferente para cada respaldo.
-
-El funcionamiento actual del script es:
-
-1. Obtiene la fecha.
-2. Obtiene la hora.
-3. Formatea la hora para poder utilizarla en el nombre de la carpeta.
-4. Genera una ruta relativa para el respaldo.
-5. Crea automáticamente el directorio.
-6. Ejecuta `mongodump`.
-7. Guarda el contenido generado por MongoDB Database Tools dentro del directorio correspondiente.
-8. Muestra un mensaje cuando el backup finaliza.
-
-La estructura generada sigue el esquema definido en el script `backup.bat`, utilizando la fecha y la hora para diferenciar respaldos realizados el mismo día.
-
-Ejemplo conceptual:
+Deben estar disponibles mediante `PATH`:
 
 ```text
-resguardostpi2026-10-2718-30-45/
-└── sistema_turnos_odm/
-    ├── pacientes.bson
-    ├── pacientes.metadata.json
-    ├── medicos.bson
-    ├── medicos.metadata.json
-    ├── turnos.bson
-    └── turnos.metadata.json
+mongodump
+tar
+zstd
 ```
 
-El script requiere que `mongodump` esté disponible desde la línea de comandos de Windows.
-
-Puede comprobarse mediante:
+Verificación desde CMD:
 
 ```bat
 mongodump --version
+tar --version
+zstd --version
 ```
 
-Ejecución:
+## Variable de conexión
+
+El script **no almacena credenciales directamente en el archivo**.
+
+Antes de ejecutarlo debe estar definida la variable:
+
+```text
+MONGODB_URI
+```
+
+Ejemplo desde CMD:
+
+```bat
+set "MONGODB_URI=mongodb+srv://USUARIO:PASSWORD@cluster.mongodb.net/turnos_medicos"
+```
+
+## Ejecución
+
+Desde la raíz del proyecto:
 
 ```bat
 scripts\backup.bat
 ```
 
-### Consideración de seguridad
+## Funcionamiento
 
-La versión actual del script de Windows contiene la cadena de conexión a MongoDB Atlas directamente en el comando `mongodump`.
+El script de Windows:
 
-Para una implementación en producción sería recomendable utilizar una variable de entorno o un mecanismo externo de configuración para evitar almacenar las credenciales dentro del script.
+1. Determina automáticamente la raíz del proyecto.
+2. Obtiene la fecha y hora en formato estable:
+   `YYYY-MM-DD_HH-MM-SS`.
+3. Comprueba que `MONGODB_URI` esté definida.
+4. Comprueba que `mongodump`, `tar` y `zstd` estén disponibles.
+5. Crea un directorio temporal dentro de `resguardos_tpi`.
+6. Ejecuta `mongodump`.
+7. Genera un archivo `.tar`.
+8. Comprime el archivo mediante Zstandard.
+9. Genera el archivo final `.tar.zst`.
+10. Elimina el archivo TAR y el directorio temporal.
+11. Si ocurre un error, intenta limpiar los archivos temporales creados durante la ejecución.
 
-En el contexto del TPI, esta sección documenta el funcionamiento actual del archivo `backup.bat`.
+El resultado tendrá un formato similar a:
+
+```text
+resguardos_tpi\backup_2026-10-27_18-30-45.tar.zst
+```
+
+---
+
+# Consultar el contenido de un backup
+
+## Linux/macOS
+
+```bash
+tar --zstd -tf resguardos_tpi/backup_FECHA_HORA.tar.zst
+```
+
+## Windows
+
+Si la versión instalada de `tar` soporta Zstandard:
+
+```bat
+tar --zstd -tf resguardos_tpi\backup_FECHA_HORA.tar.zst
+```
+
+---
+
+# Extracción de un backup
+
+## Linux/macOS
+
+```bash
+mkdir restauracion
+
+tar --zstd -xf \
+  resguardos_tpi/backup_FECHA_HORA.tar.zst \
+  -C restauracion
+```
+
+## Windows
+
+```bat
+mkdir restauracion
+
+tar --zstd -xf resguardos_tpi\backup_FECHA_HORA.tar.zst -C restauracion
+```
+
+Luego podrán encontrarse los archivos BSON y de metadatos generados originalmente por `mongodump`.
 
 ---
 
 # Restauración
 
-Los archivos generados por `mongodump` pueden restaurarse utilizando:
+Los datos extraídos pueden restaurarse utilizando `mongorestore`.
 
-```text
-mongorestore
-```
-
-Ejemplo conceptual en Linux:
+## Linux/macOS
 
 ```bash
 mongorestore \
   --uri="$MONGODB_URI" \
-  RUTA_DEL_BACKUP/turnos_medicos
+  RUTA_DEL_BACKUP_EXTRAIDO/turnos_medicos
 ```
 
-En Windows:
+## Windows
 
 ```bat
-mongorestore --uri="URI_MONGODB" RUTA_DEL_BACKUP\sistema_turnos_odm
+mongorestore --uri="%MONGODB_URI%" RUTA_DEL_BACKUP_EXTRAIDO\turnos_medicos
 ```
 
 La restauración debe realizarse cuidadosamente para evitar sobrescribir información existente de forma involuntaria.
@@ -749,7 +870,7 @@ La restauración debe realizarse cuidadosamente para evitar sobrescribir informa
 
 Se establece un RPO de **24 horas**, considerando una política de ejecución diaria del respaldo.
 
-Esto significa que ante una pérdida total de los datos podrían perderse como máximo los cambios realizados desde el último backup.
+Esto significa que, ante una pérdida total de los datos, podrían perderse como máximo los cambios realizados desde el último backup.
 
 ## RTO
 
@@ -757,7 +878,8 @@ Se establece un RTO estimado de **1 hora**.
 
 Este tiempo contempla:
 
-- restauración mediante `mongorestore`;
+- extracción del respaldo;
+- ejecución de `mongorestore`;
 - comprobación de los documentos restaurados;
 - verificación de la conexión de la aplicación;
 - recuperación del funcionamiento normal del sistema.
@@ -766,7 +888,7 @@ Este tiempo contempla:
 
 # Seguridad
 
-El archivo `.env` de la aplicación no debe almacenarse en el repositorio debido a que contiene la URI y las credenciales utilizadas para acceder a MongoDB Atlas.
+El archivo `.env` no debe almacenarse en el repositorio porque contiene la URI y las credenciales utilizadas para acceder a MongoDB Atlas.
 
 Por esta razón se utiliza:
 
@@ -783,6 +905,14 @@ MONGODB_URI=mongodb+srv://USUARIO:PASSWORD@cluster.mongodb.net/turnos_medicos
 PORT=3002
 ```
 
+Los scripts de backup tampoco almacenan credenciales directamente.
+
+La conexión con MongoDB Atlas se obtiene mediante:
+
+```text
+MONGODB_URI
+```
+
 ---
 
 # Autores
@@ -793,8 +923,6 @@ PORT=3002
 - Nombre Apellido 2
 - Nombre Apellido 3
 
-
 Trabajo realizado para la materia **Base de Datos II**.
 
 **Tecnicatura Universitaria en Programación a Distancia - UTN**
-
