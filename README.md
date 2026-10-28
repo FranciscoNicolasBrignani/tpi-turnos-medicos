@@ -13,7 +13,10 @@ Desarrollar un sistema que permita administrar:
 - Turnos médicos.
 - Relaciones entre pacientes, médicos y turnos.
 - Bajas lógicas sin eliminar físicamente los documentos.
+- Persistencia de datos en MongoDB Atlas.
 - Respaldo de la base de datos mediante `mongodump`.
+- Compresión de los respaldos mediante Zstandard.
+- Ejecución de backups tanto en Linux/macOS como en Windows.
 
 ## Tecnologías utilizadas
 
@@ -25,13 +28,24 @@ Desarrollar un sistema que permita administrar:
 - dotenv
 - tsx
 - Bash
-- mongodump
+- Windows Batch
+- MongoDB Command Line Database Tools
+- `mongodump`
+- `mongorestore`
+- `tar`
+- Zstandard (`zstd`)
 
-## Modelo de datos
+---
+
+# Modelo de datos
 
 El sistema utiliza tres colecciones principales:
 
-### Pacientes
+- `pacientes`
+- `medicos`
+- `turnos`
+
+## Pacientes
 
 Contiene información personal y administrativa del paciente.
 
@@ -54,7 +68,27 @@ Campos principales:
 
 Los datos de contacto y obra social se encuentran embebidos dentro del documento del paciente.
 
-### Médicos
+Ejemplo:
+
+```json
+{
+  "dni": "30123456",
+  "nombre": "Juan",
+  "apellido": "Perez",
+  "contacto": {
+    "telefono": "2235551234",
+    "email": "juan@email.com"
+  },
+  "obraSocial": {
+    "nombre": "OSDE",
+    "numeroAfiliado": "123456"
+  },
+  "activo": true,
+  "fechaBaja": null
+}
+```
+
+## Médicos
 
 Contiene la información correspondiente a los profesionales médicos.
 
@@ -75,9 +109,41 @@ Campos principales:
 - `createdAt`
 - `updatedAt`
 
-La matrícula, la disponibilidad, los datos de contacto y las obras sociales aceptadas se almacenan mediante **Embedding**.
+La matrícula, disponibilidad, información de contacto y obras sociales aceptadas se almacenan mediante **Embedding**.
 
-### Turnos
+Ejemplo:
+
+```json
+{
+  "nombre": "Ana",
+  "apellido": "Gomez",
+  "matricula": {
+    "numero": "12345",
+    "tipo": "provincial",
+    "jurisdiccion": "Buenos Aires"
+  },
+  "especialidad": "Cardiologia",
+  "disponibilidad": [
+    {
+      "dia": "lunes",
+      "horaDesde": "08:00",
+      "horaHasta": "12:00"
+    }
+  ],
+  "obrasSocialesAceptadas": [
+    "OSDE",
+    "IOMA"
+  ],
+  "contacto": {
+    "telefono": "2235559999",
+    "email": "ana.gomez@clinica.com"
+  },
+  "activo": true,
+  "fechaBaja": null
+}
+```
+
+## Turnos
 
 Representa la relación entre pacientes y médicos.
 
@@ -94,13 +160,29 @@ Campos principales:
 - `createdAt`
 - `updatedAt`
 
-Los campos `pacienteId` y `medicoId` almacenan referencias a documentos de las colecciones `pacientes` y `medicos`.
+Los campos `pacienteId` y `medicoId` almacenan referencias a documentos pertenecientes a las colecciones `pacientes` y `medicos`.
 
 De esta forma se implementa **Linking** entre las colecciones.
 
-## Embedding y Linking
+Ejemplo:
 
-### Embedding
+```json
+{
+  "pacienteId": "ObjectId",
+  "medicoId": "ObjectId",
+  "fechaHora": "2026-11-10T13:30:00.000Z",
+  "motivo": "Control cardiologico",
+  "estado": "pendiente",
+  "activo": true,
+  "fechaBaja": null
+}
+```
+
+---
+
+# Embedding y Linking
+
+## Embedding
 
 Se utiliza Embedding para almacenar información que pertenece directamente a una entidad y que normalmente se consulta junto con ella.
 
@@ -112,7 +194,7 @@ Ejemplos:
 - Disponibilidad de un médico.
 - Obras sociales aceptadas por un médico.
 
-### Linking
+## Linking
 
 Se utiliza Linking para relacionar entidades independientes.
 
@@ -125,11 +207,13 @@ Esto permite evitar duplicación de información y mantener separados los datos 
 
 Mongoose permite recuperar la información relacionada mediante `populate()`.
 
-## Baja lógica
+---
+
+# Baja lógica
 
 El sistema no elimina físicamente los documentos.
 
-Todos los registros principales poseen:
+Todos los registros principales poseen inicialmente:
 
 ```json
 {
@@ -138,7 +222,7 @@ Todos los registros principales poseen:
 }
 ```
 
-Cuando se realiza una baja:
+Cuando se realiza una baja lógica:
 
 ```json
 {
@@ -147,7 +231,7 @@ Cuando se realiza una baja:
 }
 ```
 
-Las operaciones de lectura muestran únicamente los documentos que tienen:
+Las operaciones de lectura muestran únicamente documentos que posean:
 
 ```json
 {
@@ -161,7 +245,11 @@ En el caso de un turno dado de baja, también se modifica su estado a:
 cancelado
 ```
 
-## Estados de los turnos
+De esta forma el documento continúa almacenado en MongoDB, pero deja de aparecer en las consultas normales de la aplicación.
+
+---
+
+# Estados de los turnos
 
 Los estados posibles son:
 
@@ -170,7 +258,9 @@ Los estados posibles son:
 - `atendido`
 - `cancelado`
 
-## API REST
+---
+
+# API REST
 
 La aplicación se ejecuta por defecto en:
 
@@ -178,7 +268,7 @@ La aplicación se ejecuta por defecto en:
 http://localhost:3002
 ```
 
-### Pacientes
+## Pacientes
 
 ```text
 POST   /api/pacientes
@@ -188,7 +278,7 @@ PATCH  /api/pacientes/:id
 DELETE /api/pacientes/:id
 ```
 
-### Médicos
+## Médicos
 
 ```text
 POST   /api/medicos
@@ -198,7 +288,7 @@ PATCH  /api/medicos/:id
 DELETE /api/medicos/:id
 ```
 
-### Turnos
+## Turnos
 
 ```text
 POST   /api/turnos
@@ -208,7 +298,9 @@ PATCH  /api/turnos/:id
 DELETE /api/turnos/:id
 ```
 
-## Ejemplo de creación de un paciente
+---
+
+# Ejemplo de creación de un paciente
 
 ```bash
 curl -X POST http://localhost:3002/api/pacientes \
@@ -228,7 +320,7 @@ curl -X POST http://localhost:3002/api/pacientes \
 }'
 ```
 
-## Ejemplo de creación de un médico
+# Ejemplo de creación de un médico
 
 ```bash
 curl -X POST http://localhost:3002/api/medicos \
@@ -260,7 +352,7 @@ curl -X POST http://localhost:3002/api/medicos \
 }'
 ```
 
-## Ejemplo de creación de un turno
+# Ejemplo de creación de un turno
 
 ```bash
 curl -X POST http://localhost:3002/api/turnos \
@@ -273,7 +365,7 @@ curl -X POST http://localhost:3002/api/turnos \
 }'
 ```
 
-## Consulta de turnos
+# Consulta de turnos
 
 ```bash
 curl http://localhost:3002/api/turnos
@@ -281,9 +373,7 @@ curl http://localhost:3002/api/turnos
 
 La consulta utiliza `populate()` para mostrar los datos relacionados del paciente y del médico.
 
-## Actualización de un turno
-
-Ejemplo para cambiar el estado a `confirmado`:
+# Actualización de un turno
 
 ```bash
 curl -X PATCH http://localhost:3002/api/turnos/ID_TURNO \
@@ -293,13 +383,13 @@ curl -X PATCH http://localhost:3002/api/turnos/ID_TURNO \
 }'
 ```
 
-## Baja lógica de un turno
+# Baja lógica de un turno
 
 ```bash
 curl -X DELETE http://localhost:3002/api/turnos/ID_TURNO
 ```
 
-La operación no elimina el documento.
+La operación no elimina físicamente el documento.
 
 El turno queda almacenado con:
 
@@ -311,7 +401,9 @@ El turno queda almacenado con:
 }
 ```
 
-## Instalación
+---
+
+# Instalación
 
 Clonar el repositorio:
 
@@ -325,13 +417,111 @@ Ingresar al proyecto:
 cd tpi-turnos-medicos
 ```
 
-Instalar dependencias:
+Instalar las dependencias:
 
 ```bash
 npm install
 ```
 
-## Variables de entorno
+---
+
+# Dependencias externas para los backups
+
+Además de las dependencias instaladas mediante `npm`, los scripts de respaldo requieren herramientas de línea de comandos instaladas en el sistema operativo.
+
+## MongoDB Command Line Database Tools
+
+Los scripts utilizan principalmente:
+
+```text
+mongodump
+mongorestore
+```
+
+Estas utilidades forman parte de **MongoDB Command Line Database Tools**.
+
+No es necesario instalar MongoDB Server localmente para disponer de estas herramientas.
+
+Si la base de datos se encuentra alojada en MongoDB Atlas y solamente se requieren las utilidades de backup y restauración, puede instalarse únicamente la suite MongoDB Database Tools.
+
+Descarga oficial:
+
+https://www.mongodb.com/try/download/database-tools
+
+Desde el sitio oficial puede seleccionarse:
+
+- versión;
+- sistema operativo o distribución;
+- arquitectura;
+- formato del paquete.
+
+Después de la instalación puede comprobarse:
+
+```bash
+mongodump --version
+mongorestore --version
+```
+
+En Windows:
+
+```bat
+mongodump --version
+mongorestore --version
+```
+
+Si los comandos no son reconocidos, debe verificarse que el directorio que contiene MongoDB Database Tools se encuentre incluido en la variable de entorno `PATH`.
+
+## Zstandard
+
+Los scripts de backup comprimen los respaldos utilizando **Zstandard**.
+
+### Debian y distribuciones derivadas
+
+```bash
+sudo apt install zstd
+```
+
+Verificación:
+
+```bash
+zstd --version
+```
+
+### Windows
+
+Debe instalarse una versión de Zstandard compatible con Windows.
+
+El ejecutable `zstd` debe estar disponible mediante la variable de entorno `PATH`.
+
+Puede comprobarse desde CMD:
+
+```bat
+zstd --version
+```
+
+## tar
+
+Ambos scripts utilizan `tar` para generar el archivo que posteriormente se comprime con Zstandard.
+
+En Linux suele estar disponible por defecto.
+
+Puede comprobarse mediante:
+
+```bash
+tar --version
+```
+
+En Windows:
+
+```bat
+tar --version
+```
+
+Si no estuviera disponible, deberá instalarse una implementación compatible o agregarse al `PATH`.
+
+---
+
+# Variables de entorno
 
 Crear un archivo `.env` a partir de `.env.example`.
 
@@ -342,11 +532,20 @@ MONGODB_URI=mongodb+srv://USUARIO:PASSWORD@cluster.mongodb.net/turnos_medicos
 PORT=3002
 ```
 
-El archivo `.env` no debe incluirse en el repositorio.
+El archivo `.env` contiene información sensible y no debe incluirse en el repositorio.
 
-## Ejecución
+El archivo `.gitignore` debe contener:
 
-Modo desarrollo:
+```gitignore
+node_modules/
+dist/
+.env
+resguardos_tpi/
+```
+
+---
+
+# Ejecución de la aplicación
 
 ```bash
 npm run dev
@@ -359,7 +558,9 @@ Conexión exitosa a MongoDB Atlas
 Servidor ejecutándose en http://localhost:3002
 ```
 
-## Estructura del proyecto
+---
+
+# Estructura del proyecto
 
 ```text
 tpi-turnos-medicos/
@@ -376,7 +577,9 @@ tpi-turnos-medicos/
 │   │   └── turnos.routes.ts
 │   └── index.ts
 ├── scripts/
-│   └── backup.sh
+│   ├── backup.sh
+│   └── backup.bat
+├── .env
 ├── .env.example
 ├── .gitignore
 ├── package.json
@@ -385,7 +588,9 @@ tpi-turnos-medicos/
 └── README.md
 ```
 
-## MongoDB Atlas
+---
+
+# MongoDB Atlas
 
 La aplicación utiliza MongoDB Atlas como servicio remoto de base de datos.
 
@@ -403,45 +608,321 @@ medicos
 turnos
 ```
 
-## Backups
+La configuración de Atlas contempla:
 
-El proyecto contempla un script Bash encargado de realizar copias de seguridad mediante `mongodump`.
+- Database Access.
+- Network Access.
+- Cluster remoto.
+- Usuario de base de datos.
+- URI de conexión mediante `mongodb+srv://`.
 
-El respaldo se almacena dentro de:
+---
+
+# Backups
+
+El proyecto incluye dos scripts:
+
+```text
+scripts/
+├── backup.sh
+└── backup.bat
+```
+
+Ambos realizan el mismo flujo general:
+
+1. Verifican que exista la variable `MONGODB_URI`.
+2. Verifican las herramientas necesarias.
+3. Obtienen fecha y hora.
+4. Crean un directorio temporal de trabajo.
+5. Ejecutan `mongodump` contra MongoDB Atlas.
+6. Generan los archivos BSON y sus metadatos.
+7. Crean un archivo TAR.
+8. Comprimen el respaldo mediante Zstandard.
+9. Generan un archivo `.tar.zst`.
+10. Eliminan los archivos temporales.
+
+Los respaldos se almacenan dentro de:
 
 ```text
 resguardos_tpi/
 ```
-
-utilizando una subcarpeta con la fecha de ejecución.
 
 Ejemplo:
 
 ```text
 resguardos_tpi/
-└── 2026-10-27/
-    └── turnos_medicos/
-        ├── pacientes.bson
-        ├── medicos.bson
-        └── turnos.bson
+├── backup_2026-10-27_12-45-10.tar.zst
+├── backup_2026-10-27_15-30-25.tar.zst
+└── backup_2026-10-27_20-12-41.tar.zst
 ```
 
-## RPO y RTO
+La utilización de fecha y hora permite realizar múltiples respaldos durante el mismo día sin sobrescribir backups anteriores.
 
-### RPO
+---
 
-Se establece un RPO de **24 horas**, considerando la ejecución diaria del respaldo.
+# Backup en Linux/macOS
 
-Ante una pérdida total de la base de datos, podrían perderse como máximo los cambios generados desde el último backup.
+El script se encuentra en:
 
-### RTO
+```text
+scripts/backup.sh
+```
 
-Se establece un RTO estimado de **1 hora** para restaurar la base de datos y recuperar el funcionamiento del sistema mediante las herramientas de MongoDB.
+## Requisitos
 
-## Autores
+Deben estar disponibles:
+
+```text
+mongodump
+tar
+zstd
+bash
+```
+
+Verificación:
+
+```bash
+mongodump --version
+tar --version
+zstd --version
+```
+
+## Variable de conexión
+
+El script utiliza:
+
+```text
+MONGODB_URI
+```
+
+Puede cargarse desde `.env` mediante:
+
+```bash
+export $(grep -v '^#' .env | xargs)
+```
+
+## Permisos
+
+Puede ser necesario otorgar permisos de ejecución:
+
+```bash
+chmod +x scripts/backup.sh
+```
+
+## Ejecución
+
+Desde la raíz del proyecto:
+
+```bash
+./scripts/backup.sh
+```
+
+El archivo generado tendrá un formato similar a:
+
+```text
+resguardos_tpi/backup_2026-10-27_18-30-45.tar.zst
+```
+
+---
+
+# Backup en Windows
+
+El script se encuentra en:
+
+```text
+scripts\backup.bat
+```
+
+## Requisitos
+
+Deben estar disponibles mediante `PATH`:
+
+```text
+mongodump
+tar
+zstd
+```
+
+Verificación desde CMD:
+
+```bat
+mongodump --version
+tar --version
+zstd --version
+```
+
+## Variable de conexión
+
+El script **no almacena credenciales directamente en el archivo**.
+
+Antes de ejecutarlo debe estar definida la variable:
+
+```text
+MONGODB_URI
+```
+
+Ejemplo desde CMD:
+
+```bat
+set "MONGODB_URI=mongodb+srv://USUARIO:PASSWORD@cluster.mongodb.net/turnos_medicos"
+```
+
+## Ejecución
+
+Desde la raíz del proyecto:
+
+```bat
+scripts\backup.bat
+```
+
+## Funcionamiento
+
+El script de Windows:
+
+1. Determina automáticamente la raíz del proyecto.
+2. Obtiene la fecha y hora en formato estable:
+   `YYYY-MM-DD_HH-MM-SS`.
+3. Comprueba que `MONGODB_URI` esté definida.
+4. Comprueba que `mongodump`, `tar` y `zstd` estén disponibles.
+5. Crea un directorio temporal dentro de `resguardos_tpi`.
+6. Ejecuta `mongodump`.
+7. Genera un archivo `.tar`.
+8. Comprime el archivo mediante Zstandard.
+9. Genera el archivo final `.tar.zst`.
+10. Elimina el archivo TAR y el directorio temporal.
+11. Si ocurre un error, intenta limpiar los archivos temporales creados durante la ejecución.
+
+El resultado tendrá un formato similar a:
+
+```text
+resguardos_tpi\backup_2026-10-27_18-30-45.tar.zst
+```
+
+---
+
+# Consultar el contenido de un backup
+
+## Linux/macOS
+
+```bash
+tar --zstd -tf resguardos_tpi/backup_FECHA_HORA.tar.zst
+```
+
+## Windows
+
+Si la versión instalada de `tar` soporta Zstandard:
+
+```bat
+tar --zstd -tf resguardos_tpi\backup_FECHA_HORA.tar.zst
+```
+
+---
+
+# Extracción de un backup
+
+## Linux/macOS
+
+```bash
+mkdir restauracion
+
+tar --zstd -xf \
+  resguardos_tpi/backup_FECHA_HORA.tar.zst \
+  -C restauracion
+```
+
+## Windows
+
+```bat
+mkdir restauracion
+
+tar --zstd -xf resguardos_tpi\backup_FECHA_HORA.tar.zst -C restauracion
+```
+
+Luego podrán encontrarse los archivos BSON y de metadatos generados originalmente por `mongodump`.
+
+---
+
+# Restauración
+
+Los datos extraídos pueden restaurarse utilizando `mongorestore`.
+
+## Linux/macOS
+
+```bash
+mongorestore \
+  --uri="$MONGODB_URI" \
+  RUTA_DEL_BACKUP_EXTRAIDO/turnos_medicos
+```
+
+## Windows
+
+```bat
+mongorestore --uri="%MONGODB_URI%" RUTA_DEL_BACKUP_EXTRAIDO\turnos_medicos
+```
+
+La restauración debe realizarse cuidadosamente para evitar sobrescribir información existente de forma involuntaria.
+
+---
+
+# RPO y RTO
+
+## RPO
+
+Se establece un RPO de **24 horas**, considerando una política de ejecución diaria del respaldo.
+
+Esto significa que, ante una pérdida total de los datos, podrían perderse como máximo los cambios realizados desde el último backup.
+
+## RTO
+
+Se establece un RTO estimado de **1 hora**.
+
+Este tiempo contempla:
+
+- extracción del respaldo;
+- ejecución de `mongorestore`;
+- comprobación de los documentos restaurados;
+- verificación de la conexión de la aplicación;
+- recuperación del funcionamiento normal del sistema.
+
+---
+
+# Seguridad
+
+El archivo `.env` no debe almacenarse en el repositorio porque contiene la URI y las credenciales utilizadas para acceder a MongoDB Atlas.
+
+Por esta razón se utiliza:
+
+```text
+.env.example
+```
+
+como referencia de las variables necesarias para ejecutar el proyecto.
+
+Ejemplo:
+
+```env
+MONGODB_URI=mongodb+srv://USUARIO:PASSWORD@cluster.mongodb.net/turnos_medicos
+PORT=3002
+```
+
+Los scripts de backup tampoco almacenan credenciales directamente.
+
+La conexión con MongoDB Atlas se obtiene mediante:
+
+```text
+MONGODB_URI
+```
+
+---
+
+# Autores
+
+**Grupo 24**
+
+- Nombre Apellido 1
+- Nombre Apellido 2
+- Nombre Apellido 3
 
 Trabajo realizado para la materia **Base de Datos II**.
 
 **Tecnicatura Universitaria en Programación a Distancia - UTN**
-
-**Grupo 24**
