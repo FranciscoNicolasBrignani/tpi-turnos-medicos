@@ -31,9 +31,15 @@ const medicoSchema = new Schema(
       }
     },
 
-    especialidad: {
-      type: String,
-      required: true
+    especialidades: {
+      type: [String],
+      required: true,
+      validate: {
+        validator: function (v: string[]) {
+          return v && v.length > 0;
+        },
+        message: "El medico tiene que tener al menos una especialidad"
+      }
     },
 
     disponibilidad: [
