@@ -34,6 +34,21 @@ const pacienteSchema = new Schema(
       }
     },
 
+    contactoEmergencia: {
+      nombre:{
+        type: String,
+        trim: true
+      },
+      relacion: {
+        type: String,
+        trim: true
+      },
+      telefono: {
+        type: String,
+        trim: true
+      }
+    },
+
     obraSocial: {
       nombre: {
         type: String
